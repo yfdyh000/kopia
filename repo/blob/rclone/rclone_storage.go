@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -160,13 +161,15 @@ func (r *rcloneStorage) runRCloneAndWaitForServerAddress(ctx context.Context, c 
 			s := bufio.NewScanner(stderr)
 
 			var lastOutput string
+			serverRegexp := regexp.MustCompile(`(?i)WebDav Server started on \[?(https://.+:\d{1,5}/)\]?`)
 
 			for s.Scan() {
 				l := s.Text()
 				lastOutput = l
 
-				if p := strings.Index(l, "https://"); p >= 0 {
-					rcloneAddressChan <- l[p:]
+				params := serverRegexp.FindStringSubmatch(l)
+				if params != nil {
+					rcloneAddressChan <- params[1]
 
 					go r.processStderrStatus(ctx, statsMarker, s)
 
