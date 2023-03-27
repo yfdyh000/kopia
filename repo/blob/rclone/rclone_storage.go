@@ -161,6 +161,7 @@ func (r *rcloneStorage) runRCloneAndWaitForServerAddress(ctx context.Context, c 
 			s := bufio.NewScanner(stderr)
 
 			var lastOutput string
+
 			serverRegexp := regexp.MustCompile(`(?i)WebDav Server started on \[?(https://.+:\d{1,5}/)\]?`)
 
 			for s.Scan() {
