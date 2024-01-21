@@ -7,7 +7,7 @@ import (
 )
 
 // BufSize is the size (in bytes) of the shared copy buffers Kopia uses to copy data.
-const BufSize = 65536
+const BufSize = 1024*1024
 
 var (
 	mu sync.Mutex //nolint:gochecknoglobals
