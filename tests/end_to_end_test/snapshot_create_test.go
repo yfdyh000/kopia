@@ -1,11 +1,11 @@
 package endtoend_test
 
 import (
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/kopia/kopia/cli"
 	"github.com/kopia/kopia/internal/cachedir"
+	"github.com/kopia/kopia/internal/clock"
 	"github.com/kopia/kopia/internal/testutil"
 	"github.com/kopia/kopia/snapshot"
 	"github.com/kopia/kopia/snapshot/policy"
@@ -504,7 +505,6 @@ func TestSnapshotCreateWithIgnore(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			runner := testenv.NewInProcRunner(t)
 			e := testenv.NewCLITest(t, testenv.RepoFormatNotImportant, runner)
@@ -532,6 +532,7 @@ func TestSnapshotCreateWithIgnore(t *testing.T) {
 			var expected []string
 			for _, ex := range tc.expected {
 				expected = appendIfMissing(expected, ex)
+
 				if !strings.HasSuffix(ex, "/") {
 					for d, _ := path.Split(ex); d != ""; d, _ = path.Split(d) {
 						expected = appendIfMissing(expected, d)
@@ -542,6 +543,7 @@ func TestSnapshotCreateWithIgnore(t *testing.T) {
 
 			sort.Strings(output)
 			sort.Strings(expected)
+
 			if diff := pretty.Compare(output, expected); diff != "" {
 				t.Errorf("unexpected directory tree, diff(-got,+want): %v\n", diff)
 			}
@@ -757,7 +759,7 @@ func TestSnapshotCreateAllSnapshotPath(t *testing.T) {
 	// all non-global policies should be manual
 	for _, p := range plist {
 		if (p.Target != snapshot.SourceInfo{}) {
-			require.True(t, p.Policy.SchedulingPolicy.Manual)
+			require.True(t, p.SchedulingPolicy.Manual)
 		}
 	}
 
@@ -778,7 +780,7 @@ func TestSnapshotCreateAllSnapshotPath(t *testing.T) {
 	require.Equal(t, "foo", si[2].Host)
 
 	if runtime.GOOS == "windows" {
-		require.Regexp(t, regexp.MustCompile(`[A-Z]:\\foo\\bar`), si[2].Path)
+		require.Regexp(t, `[A-Z]:\\foo\\bar`, si[2].Path)
 	} else {
 		require.Equal(t, "/foo/bar", si[2].Path)
 	}
@@ -798,4 +800,62 @@ func TestSnapshotCreateWithAllAndPath(t *testing.T) {
 	e.RunAndExpectSuccess(t, "snapshot", "create", sharedTestDataDir1)
 	e.RunAndExpectSuccess(t, "snapshot", "create", sharedTestDataDir2)
 	e.RunAndExpectFailure(t, "snapshot", "create", sharedTestDataDir1, "--all")
+}
+
+func TestSnapshotNoLeftoverCheckpoints(t *testing.T) {
+	// 1 GiB of data seems to be enough for the snapshot time to exceed one second.
+	const (
+		fileSize                  = 1 << 30
+		checkpointInterval        = "1s"
+		checkpointIntervalSeconds = 1
+	)
+
+	t.Parallel()
+
+	runner := testenv.NewInProcRunner(t)
+	e := testenv.NewCLITest(t, testenv.RepoFormatNotImportant, runner)
+
+	defer e.RunAndExpectSuccess(t, "repo", "disconnect")
+
+	e.RunAndExpectSuccess(t, "repo", "create", "filesystem", "--path", e.RepoDir)
+
+	baseDir := testutil.TempDirectory(t)
+	files := []testFileEntry{
+		{
+			Name: "/foo",
+			Content: []string{
+				generateRandomLetters(fileSize),
+			},
+		},
+	}
+
+	require.NoError(t, createFileStructure(baseDir, files))
+
+	startTime := clock.Now()
+
+	e.RunAndExpectSuccess(t, "snapshot", "create", baseDir, "--checkpoint-interval", checkpointInterval)
+
+	endTime := clock.Now()
+
+	snapshotTimeSurpassedCheckpointInterval := endTime.Sub(startTime).Seconds() > checkpointIntervalSeconds
+	require.True(t, snapshotTimeSurpassedCheckpointInterval)
+
+	// This exploits the implementation detail of `ListSnapshotsAndExpectSuccess`, that it does
+	// not sanitize `targets` to exclude flags.
+	si := clitestutil.ListSnapshotsAndExpectSuccess(t, e, "--incomplete", baseDir)
+	require.Len(t, si, 1)
+	require.Len(t, si[0].Snapshots, 1)
+	require.False(t, si[0].Snapshots[0].Incomplete)
+}
+
+// https://stackoverflow.com/a/31832326
+func generateRandomLetters(n int) string {
+	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
+	}
+
+	return string(b)
 }

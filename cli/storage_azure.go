@@ -25,12 +25,13 @@ func (c *storageAzureFlags) Setup(svc StorageProviderServices, cmd *kingpin.CmdC
 	cmd.Flag("tenant-id", "Azure service principle tenant ID (overrides AZURE_TENANT_ID environment variable)").Envar(svc.EnvName("AZURE_TENANT_ID")).StringVar(&c.azOptions.TenantID)
 	cmd.Flag("client-id", "Azure service principle client ID (overrides AZURE_CLIENT_ID environment variable)").Envar(svc.EnvName("AZURE_CLIENT_ID")).StringVar(&c.azOptions.ClientID)
 	cmd.Flag("client-secret", "Azure service principle client secret (overrides AZURE_CLIENT_SECRET environment variable)").Envar(svc.EnvName("AZURE_CLIENT_SECRET")).StringVar(&c.azOptions.ClientSecret)
+	cmd.Flag("client-cert", "Azure client certificate (overrides AZURE_CLIENT_CERT environment variable)").Envar(svc.EnvName("AZURE_CLIENT_CERT")).StringVar(&c.azOptions.ClientCert)
 
 	commonThrottlingFlags(cmd, &c.azOptions.Limits)
 
 	var pointInTimeStr string
 
-	pitPreAction := func(pc *kingpin.ParseContext) error {
+	pitPreAction := func(_ *kingpin.ParseContext) error {
 		if pointInTimeStr != "" {
 			t, err := time.Parse(time.RFC3339, pointInTimeStr)
 			if err != nil {

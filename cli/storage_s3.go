@@ -34,7 +34,7 @@ func (c *storageS3Flags) Setup(svc StorageProviderServices, cmd *kingpin.CmdClau
 
 	var pointInTimeStr string
 
-	pitPreAction := func(pc *kingpin.ParseContext) error {
+	pitPreAction := func(_ *kingpin.ParseContext) error {
 		if pointInTimeStr != "" {
 			t, err := time.Parse(time.RFC3339, pointInTimeStr)
 			if err != nil {
@@ -55,7 +55,7 @@ func (c *storageS3Flags) Setup(svc StorageProviderServices, cmd *kingpin.CmdClau
 
 func (c *storageS3Flags) preActionLoadPEMPath(_ *kingpin.ParseContext) error {
 	if len(c.s3options.RootCA) > 0 {
-		return errors.Errorf("root-ca-pem-base64 and root-ca-pem-path are mutually exclusive")
+		return errors.New("root-ca-pem-base64 and root-ca-pem-path are mutually exclusive")
 	}
 
 	data, err := os.ReadFile(c.rootCaPemPath) //#nosec

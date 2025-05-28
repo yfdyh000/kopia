@@ -92,11 +92,10 @@ func TestEndurance(t *testing.T) {
 	rwMutex := &sync.RWMutex{}
 
 	t.Run("Runners", func(t *testing.T) {
-		for i := 0; i < enduranceRunnerCount; i++ {
-			i := i
-
+		for i := range enduranceRunnerCount {
 			t.Run(fmt.Sprintf("Runner-%v", i), func(t *testing.T) {
 				t.Parallel()
+
 				defer func() {
 					if t.Failed() {
 						failureCount.Add(1)

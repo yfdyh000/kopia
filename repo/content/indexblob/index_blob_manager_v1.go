@@ -47,7 +47,7 @@ func (m *ManagerV1) ListActiveIndexBlobs(ctx context.Context) ([]Metadata, time.
 		result = append(result, Metadata{Metadata: bm})
 	}
 
-	m.log.Errorf("active indexes %v deletion watermark %v", blob.IDsFromMetadata(active), deletionWatermark)
+	m.log.Debugf("total active indexes %v, deletion watermark %v", len(active), deletionWatermark)
 
 	return result, deletionWatermark, nil
 }
@@ -68,7 +68,7 @@ func (m *ManagerV1) Compact(ctx context.Context, opt CompactOptions) error {
 
 // CompactEpoch compacts the provided index blobs and writes a new set of blobs.
 func (m *ManagerV1) CompactEpoch(ctx context.Context, blobIDs []blob.ID, outputPrefix blob.ID) error {
-	tmpbld := make(index.Builder)
+	tmpbld := index.NewOneUseBuilder()
 
 	for _, indexBlob := range blobIDs {
 		if err := addIndexBlobsToBuilder(ctx, m.enc, tmpbld, indexBlob); err != nil {
@@ -76,7 +76,7 @@ func (m *ManagerV1) CompactEpoch(ctx context.Context, blobIDs []blob.ID, outputP
 		}
 	}
 
-	mp, mperr := m.formattingOptions.GetMutableParameters()
+	mp, mperr := m.formattingOptions.GetMutableParameters(ctx)
 	if mperr != nil {
 		return errors.Wrap(mperr, "mutable parameters")
 	}

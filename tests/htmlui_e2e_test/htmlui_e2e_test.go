@@ -117,13 +117,13 @@ func createTestSnapshot(t *testing.T, ctx context.Context, sp *testutil.ServerPa
 	f, err := os.Create(filepath.Join(snap1Path, "big.file"))
 
 	// assert that no error occurred
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	// truncate file to 10 mb
 	err = f.Truncate(1e7)
 
 	// assert that no error occurred
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	// create test repository
 	require.NoError(t, chromedp.Run(ctx,
@@ -150,6 +150,8 @@ func createTestSnapshot(t *testing.T, ctx context.Context, sp *testutil.ServerPa
 		chromedp.Click(`a[data-testid='new-snapshot']`),
 
 		tc.log("entering path:"+snap1Path),
+
+		chromedp.Sleep(time.Second),
 		chromedp.SendKeys(`input[name='path']`, snap1Path+"\t"),
 		chromedp.Sleep(2*time.Second),
 
@@ -161,9 +163,12 @@ func createTestSnapshot(t *testing.T, ctx context.Context, sp *testutil.ServerPa
 
 		tc.log("clicking snapshot now"),
 		chromedp.Click(`button[data-testid='snapshot-now']`),
+		chromedp.Sleep(time.Second),
 		tc.captureScreenshot("snapshot-clicked"),
 
+		tc.log("navigating to tab Snapshots"),
 		chromedp.Navigate(sp.BaseURL),
+		chromedp.WaitVisible(`a[data-testid='tab-snapshots']`),
 		chromedp.Click("a[data-testid='tab-snapshots']"),
 
 		tc.log("waiting for snapshot list"),
@@ -277,6 +282,7 @@ func TestChangeTheme(t *testing.T) {
 
 			tc.log("clicking on preference tab"),
 			chromedp.Click("a[data-testid='tab-preferences']", chromedp.BySearch),
+			chromedp.Sleep(time.Second),
 
 			chromedp.Nodes("html", &nodes),
 			tc.captureScreenshot("initial-theme"),
@@ -329,6 +335,7 @@ func TestByteRepresentation(t *testing.T) {
 		snap1Path := testutil.TempDirectory(t)
 
 		var base2 string
+
 		var base10 string
 
 		// create a test snaphot
@@ -336,6 +343,8 @@ func TestByteRepresentation(t *testing.T) {
 
 		// begin test
 		require.NoError(t, chromedp.Run(ctx,
+			tc.captureScreenshot("initial0"),
+
 			tc.log("navigating to preferences tab"),
 			chromedp.Click("a[data-testid='tab-preferences']", chromedp.BySearch),
 			tc.captureScreenshot("initial"),
@@ -347,7 +356,7 @@ func TestByteRepresentation(t *testing.T) {
 			tc.log("clicking on snapshots tab"),
 			chromedp.Click("a[data-testid='tab-snapshots']", chromedp.BySearch),
 			// getting text from the third column of the first row indicating the size of the snapshot
-			chromedp.Text(`#root > div > table > tbody > tr:nth-child(1) > td:nth-child(3)`, &base2, chromedp.ByQuery),
+			chromedp.Text(`#root table > tbody > tr:nth-child(1) > td:nth-child(3)`, &base2, chromedp.ByQuery),
 			tc.captureScreenshot("snapshot-base-2"),
 
 			tc.log("clicking on preferences tab"),
@@ -360,7 +369,7 @@ func TestByteRepresentation(t *testing.T) {
 			tc.log("clicking on snapshots tab"),
 			chromedp.Click("a[data-testid='tab-snapshots']", chromedp.BySearch),
 			// getting text from the third column of the first row indicating the size of the snapshot
-			chromedp.Text(`#root > div > table > tbody > tr:nth-child(1) > td:nth-child(3)`, &base10, chromedp.BySearch),
+			chromedp.Text(`#root table > tbody > tr:nth-child(1) > td:nth-child(3)`, &base10, chromedp.BySearch),
 			tc.captureScreenshot("snapshot-base-10"),
 		))
 

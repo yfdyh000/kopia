@@ -50,8 +50,8 @@ func goModeToUnixMode(mode os.FileMode) uint32 {
 
 func populateAttributes(a *fuse.Attr, e fs.Entry) {
 	a.Mode = goModeToUnixMode(e.Mode())
-	a.Size = uint64(e.Size())
-	a.Mtime = uint64(e.ModTime().Unix())
+	a.Size = uint64(e.Size())            //nolint:gosec
+	a.Mtime = uint64(e.ModTime().Unix()) //nolint:gosec
 	a.Ctime = a.Mtime
 	a.Atime = a.Mtime
 	a.Nlink = 1
@@ -60,7 +60,7 @@ func populateAttributes(a *fuse.Attr, e fs.Entry) {
 	a.Blocks = (a.Size + fakeBlockSize - 1) / fakeBlockSize
 }
 
-func (n *fuseNode) Getattr(ctx context.Context, _ gofusefs.FileHandle, a *fuse.AttrOut) syscall.Errno {
+func (n *fuseNode) Getattr(_ context.Context, _ gofusefs.FileHandle, a *fuse.AttrOut) syscall.Errno {
 	populateAttributes(&a.Attr, n.entry)
 
 	a.Ino = n.StableAttr().Ino
@@ -114,7 +114,7 @@ func (f *fuseFileHandle) Read(ctx context.Context, dest []byte, off int64) (fuse
 	return fuse.ReadResultData(dest[0:n]), gofusefs.OK
 }
 
-func (f *fuseFileHandle) Release(ctx context.Context) syscall.Errno {
+func (f *fuseFileHandle) Release(_ context.Context) syscall.Errno {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

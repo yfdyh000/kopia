@@ -43,7 +43,7 @@ type fsImpl struct {
 	osi osInterface
 }
 
-var errRetriableInvalidLength = errors.Errorf("invalid length (retriable)")
+var errRetriableInvalidLength = errors.New("invalid length (retriable)")
 
 func (fs *fsImpl) isRetriable(err error) bool {
 	if err == nil {
@@ -92,7 +92,6 @@ func (fs *fsImpl) GetBlobFromPath(ctx context.Context, dirPath, path string, off
 		defer f.Close() //nolint:errcheck
 
 		if length < 0 {
-			//nolint:wrapcheck
 			return iocopy.JustCopy(output, f)
 		}
 
@@ -116,7 +115,7 @@ func (fs *fsImpl) GetBlobFromPath(ctx context.Context, dirPath, path string, off
 				}
 			}
 
-			return errors.Errorf("invalid length")
+			return errors.New("invalid length")
 		}
 
 		return nil
@@ -293,7 +292,7 @@ func (fs *fsStorage) TouchBlob(ctx context.Context, blobID blob.ID, threshold ti
 
 	//nolint:wrapcheck,forcetypeassert
 	err := retry.WithExponentialBackoffNoValue(ctx, "TouchBlob", func() error {
-		_, path, err := fs.Storage.GetShardedPathAndFilePath(ctx, blobID)
+		_, path, err := fs.GetShardedPathAndFilePath(ctx, blobID)
 		if err != nil {
 			return errors.Wrap(err, "error getting sharded path")
 		}

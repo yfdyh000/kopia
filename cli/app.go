@@ -16,9 +16,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kopia/kopia/internal/apiclient"
+	"github.com/kopia/kopia/internal/clock"
 	"github.com/kopia/kopia/internal/gather"
 	"github.com/kopia/kopia/internal/passwordpersist"
 	"github.com/kopia/kopia/internal/releasable"
+	"github.com/kopia/kopia/notification"
+	"github.com/kopia/kopia/notification/notifydata"
+	"github.com/kopia/kopia/notification/notifytemplate"
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/logging"
@@ -63,11 +67,11 @@ func (o *textOutput) stderr() io.Writer {
 }
 
 func (o *textOutput) printStdout(msg string, args ...interface{}) {
-	fmt.Fprintf(o.stdout(), msg, args...)
+	fmt.Fprintf(o.stdout(), msg, args...) //nolint:errcheck
 }
 
 func (o *textOutput) printStderr(msg string, args ...interface{}) {
-	fmt.Fprintf(o.stderr(), msg, args...)
+	fmt.Fprintf(o.stderr(), msg, args...) //nolint:errcheck
 }
 
 // appServices are the methods of *App that command handles are allowed to call.
@@ -80,12 +84,16 @@ type appServices interface {
 	directRepositoryReadAction(act func(ctx context.Context, rep repo.DirectRepository) error) func(ctx *kingpin.ParseContext) error
 	repositoryReaderAction(act func(ctx context.Context, rep repo.Repository) error) func(ctx *kingpin.ParseContext) error
 	repositoryWriterAction(act func(ctx context.Context, rep repo.RepositoryWriter) error) func(ctx *kingpin.ParseContext) error
+	repositoryHintAction(act func(ctx context.Context, rep repo.Repository) []string) func() []string
 	maybeRepositoryAction(act func(ctx context.Context, rep repo.Repository) error, mode repositoryAccessMode) func(ctx *kingpin.ParseContext) error
 	baseActionWithContext(act func(ctx context.Context) error) func(ctx *kingpin.ParseContext) error
 	openRepository(ctx context.Context, mustBeConnected bool) (repo.Repository, error)
-	advancedCommand(ctx context.Context)
+	advancedCommand()
 	repositoryConfigFileName() string
 	getProgress() *cliProgress
+	getRestoreProgress() RestoreProgress
+	notificationTemplateOptions() notifytemplate.Options
+
 	stdout() io.Writer
 	Stderr() io.Writer
 	stdin() io.Reader
@@ -109,6 +117,7 @@ type advancedAppServices interface {
 	getPasswordFromFlags(ctx context.Context, isCreate, allowPersistent bool) (string, error)
 	optionsFromFlags(ctx context.Context) *repo.Options
 	runAppWithContext(command *kingpin.CmdClause, callback func(ctx context.Context) error) error
+	enableErrorNotifications() bool
 }
 
 // App contains per-invocation flags and state of Kopia CLI.
@@ -117,6 +126,7 @@ type App struct {
 	enableAutomaticMaintenance    bool
 	pf                            profileFlags
 	progress                      *cliProgress
+	restoreProgress               RestoreProgress
 	initialUpdateCheckDelay       time.Duration
 	updateCheckInterval           time.Duration
 	updateAvailableNotifyInterval time.Duration
@@ -135,29 +145,32 @@ type App struct {
 	upgradeOwnerID      string
 	doNotWaitForUpgrade bool
 
+	errorNotifications string
+
 	currentAction         string
 	onExitCallbacks       []func()
 	onFatalErrorCallbacks []func(err error)
 
 	// subcommands
-	blob        commandBlob
-	benchmark   commandBenchmark
-	cache       commandCache
-	content     commandContent
-	diff        commandDiff
-	index       commandIndex
-	list        commandList
-	server      commandServer
-	session     commandSession
-	policy      commandPolicy
-	restore     commandRestore
-	show        commandShow
-	snapshot    commandSnapshot
-	manifest    commandManifest
-	mount       commandMount
-	maintenance commandMaintenance
-	repository  commandRepository
-	logs        commandLogs
+	blob         commandBlob
+	benchmark    commandBenchmark
+	cache        commandCache
+	content      commandContent
+	diff         commandDiff
+	index        commandIndex
+	list         commandList
+	server       commandServer
+	session      commandSession
+	policy       commandPolicy
+	restore      commandRestore
+	show         commandShow
+	snapshot     commandSnapshot
+	manifest     commandManifest
+	mount        commandMount
+	maintenance  commandMaintenance
+	repository   commandRepository
+	logs         commandLogs
+	notification commandNotification
 
 	// testability hooks
 	testonlyIgnoreMissingRequiredFeatures bool
@@ -179,6 +192,15 @@ func (c *App) enableTestOnlyFlags() bool {
 
 func (c *App) getProgress() *cliProgress {
 	return c.progress
+}
+
+// SetRestoreProgress is used to set custom restore progress, purposed to be used in tests.
+func (c *App) SetRestoreProgress(p RestoreProgress) {
+	c.restoreProgress = p
+}
+
+func (c *App) getRestoreProgress() RestoreProgress {
+	return c.restoreProgress
 }
 
 func (c *App) stdin() io.Reader {
@@ -260,6 +282,10 @@ func (c *App) setup(app *kingpin.Application) {
 	app.Flag("dump-allocator-stats", "Dump allocator stats at the end of execution.").Hidden().Envar(c.EnvName("KOPIA_DUMP_ALLOCATOR_STATS")).BoolVar(&c.dumpAllocatorStats)
 	app.Flag("upgrade-owner-id", "Repository format upgrade owner-id.").Hidden().Envar(c.EnvName("KOPIA_REPO_UPGRADE_OWNER_ID")).StringVar(&c.upgradeOwnerID)
 	app.Flag("upgrade-no-block", "Do not block when repository format upgrade is in progress, instead exit with a message.").Hidden().Default("false").Envar(c.EnvName("KOPIA_REPO_UPGRADE_NO_BLOCK")).BoolVar(&c.doNotWaitForUpgrade)
+	app.Flag("error-notifications", "Send notification on errors").Hidden().
+		Envar(c.EnvName("KOPIA_SEND_ERROR_NOTIFICATIONS")).
+		Default(errorNotificationsNonInteractive).
+		EnumVar(&c.errorNotifications, errorNotificationsAlways, errorNotificationsNever, errorNotificationsNonInteractive)
 
 	if c.enableTestOnlyFlags() {
 		app.Flag("ignore-missing-required-features", "Open repository despite missing features (VERY DANGEROUS, ONLY FOR TESTING)").Hidden().BoolVar(&c.testonlyIgnoreMissingRequiredFeatures)
@@ -288,6 +314,7 @@ func (c *App) setup(app *kingpin.Application) {
 	c.index.setup(c, app)
 	c.list.setup(c, app)
 	c.logs.setup(c, app)
+	c.notification.setup(c, app)
 	c.server.setup(c, app)
 	c.session.setup(c, app)
 	c.restore.setup(c, app)
@@ -365,10 +392,10 @@ func safetyFlagVar(cmd *kingpin.CmdClause, result *maintenance.SafetyParameters)
 		"full": maintenance.SafetyFull,
 	}
 
-	cmd.Flag("safety", "Safety level").Default("full").PreAction(func(pc *kingpin.ParseContext) error {
+	cmd.Flag("safety", "Safety level").Default("full").PreAction(func(_ *kingpin.ParseContext) error {
 		r, ok := safetyByName[str]
 		if !ok {
-			return errors.Errorf("unhandled safety level")
+			return errors.New("unhandled safety level")
 		}
 
 		*result = r
@@ -423,7 +450,7 @@ func assertDirectRepository(act func(ctx context.Context, rep repo.DirectReposit
 		// but will fail in the future when we have remote repository implementation
 		lr, ok := rep.(repo.DirectRepository)
 		if !ok {
-			return errors.Errorf("operation supported only on direct repository")
+			return errors.New("operation supported only on direct repository")
 		}
 
 		return act(ctx, lr)
@@ -432,38 +459,27 @@ func assertDirectRepository(act func(ctx context.Context, rep repo.DirectReposit
 
 func (c *App) directRepositoryWriteAction(act func(ctx context.Context, rep repo.DirectRepositoryWriter) error) func(ctx *kingpin.ParseContext) error {
 	return c.maybeRepositoryAction(assertDirectRepository(func(ctx context.Context, rep repo.DirectRepository) error {
-		//nolint:wrapcheck
 		return repo.DirectWriteSession(ctx, rep, repo.WriteSessionOptions{
 			Purpose:  "cli:" + c.currentActionName(),
 			OnUpload: c.progress.UploadedBytes,
 		}, func(ctx context.Context, dw repo.DirectRepositoryWriter) error { return act(ctx, dw) })
-	}), repositoryAccessMode{
-		mustBeConnected:    true,
-		disableMaintenance: true,
-	})
+	}), repositoryAccessMode{})
 }
 
 func (c *App) directRepositoryReadAction(act func(ctx context.Context, rep repo.DirectRepository) error) func(ctx *kingpin.ParseContext) error {
 	return c.maybeRepositoryAction(assertDirectRepository(func(ctx context.Context, rep repo.DirectRepository) error {
 		return act(ctx, rep)
-	}), repositoryAccessMode{
-		mustBeConnected:    true,
-		disableMaintenance: true,
-	})
+	}), repositoryAccessMode{})
 }
 
 func (c *App) repositoryReaderAction(act func(ctx context.Context, rep repo.Repository) error) func(ctx *kingpin.ParseContext) error {
 	return c.maybeRepositoryAction(func(ctx context.Context, rep repo.Repository) error {
 		return act(ctx, rep)
-	}, repositoryAccessMode{
-		mustBeConnected:    true,
-		disableMaintenance: true,
-	})
+	}, repositoryAccessMode{})
 }
 
 func (c *App) repositoryWriterAction(act func(ctx context.Context, rep repo.RepositoryWriter) error) func(ctx *kingpin.ParseContext) error {
 	return c.maybeRepositoryAction(func(ctx context.Context, rep repo.Repository) error {
-		//nolint:wrapcheck
 		return repo.WriteSession(ctx, rep, repo.WriteSessionOptions{
 			Purpose:  "cli:" + c.currentActionName(),
 			OnUpload: c.progress.UploadedBytes,
@@ -471,7 +487,7 @@ func (c *App) repositoryWriterAction(act func(ctx context.Context, rep repo.Repo
 			return act(ctx, w)
 		})
 	}, repositoryAccessMode{
-		mustBeConnected: true,
+		allowMaintenance: true,
 	})
 }
 
@@ -491,8 +507,15 @@ func (c *App) runAppWithContext(command *kingpin.CmdClause, cb func(ctx context.
 	}
 
 	err := func() error {
+		if command == nil {
+			defer c.runOnExit()
+
+			return cb(ctx)
+		}
+
 		tctx, span := tracer.Start(ctx, command.FullCommand(), trace.WithSpanKind(trace.SpanKindClient))
 		defer span.End()
+
 		defer c.runOnExit()
 
 		return cb(tctx)
@@ -517,8 +540,7 @@ func (c *App) runAppWithContext(command *kingpin.CmdClause, cb func(ctx context.
 }
 
 type repositoryAccessMode struct {
-	mustBeConnected    bool
-	disableMaintenance bool
+	allowMaintenance bool
 }
 
 func (c *App) baseActionWithContext(act func(ctx context.Context) error) func(ctx *kingpin.ParseContext) error {
@@ -537,20 +559,35 @@ func (c *App) baseActionWithContext(act func(ctx context.Context) error) func(ct
 
 func (c *App) maybeRepositoryAction(act func(ctx context.Context, rep repo.Repository) error, mode repositoryAccessMode) func(ctx *kingpin.ParseContext) error {
 	return c.baseActionWithContext(func(ctx context.Context) error {
-		rep, err := c.openRepository(ctx, mode.mustBeConnected)
-		if err != nil && mode.mustBeConnected {
+		const requireConnected = true
+
+		rep, err := c.openRepository(ctx, requireConnected)
+		if err != nil {
 			return errors.Wrap(err, "open repository")
 		}
 
+		t0 := clock.Now()
+
 		err = act(ctx, rep)
 
-		if rep != nil && !mode.disableMaintenance {
+		if rep != nil && err == nil && mode.allowMaintenance {
 			if merr := c.maybeRunMaintenance(ctx, rep); merr != nil {
 				log(ctx).Errorf("error running maintenance: %v", merr)
 			}
 		}
 
-		if rep != nil && mode.mustBeConnected {
+		if err != nil && c.enableErrorNotifications() && rep != nil {
+			notification.Send(ctx, rep, "generic-error", notifydata.NewErrorInfo(
+				c.currentActionName(),
+				c.currentActionName(),
+				t0,
+				clock.Now(),
+				err), notification.SeverityError,
+				c.notificationTemplateOptions(),
+			)
+		}
+
+		if rep != nil {
 			if cerr := rep.Close(ctx); cerr != nil {
 				return errors.Wrap(cerr, "unable to close repository")
 			}
@@ -558,6 +595,28 @@ func (c *App) maybeRepositoryAction(act func(ctx context.Context, rep repo.Repos
 
 		return err
 	})
+}
+
+func (c *App) repositoryHintAction(act func(ctx context.Context, rep repo.Repository) []string) func() []string {
+	return func() []string {
+		var result []string
+
+		//nolint:errcheck
+		c.runAppWithContext(nil, func(ctx context.Context) error {
+			rep, err := c.openRepository(ctx, true)
+			if err != nil {
+				return nil
+			}
+
+			defer rep.Close(ctx) //nolint:errcheck
+
+			result = act(ctx, rep)
+
+			return nil
+		})
+
+		return result
+	}
 }
 
 func (c *App) maybeRunMaintenance(ctx context.Context, rep repo.Repository) error {
@@ -578,7 +637,6 @@ func (c *App) maybeRunMaintenance(ctx context.Context, rep repo.Repository) erro
 		Purpose:  "maybeRunMaintenance",
 		OnUpload: c.progress.UploadedBytes,
 	}, func(ctx context.Context, w repo.DirectRepositoryWriter) error {
-		//nolint:wrapcheck
 		return snapshotmaintenance.Run(ctx, w, maintenance.ModeAuto, false, maintenance.SafetyFull)
 	})
 
@@ -592,7 +650,7 @@ func (c *App) maybeRunMaintenance(ctx context.Context, rep repo.Repository) erro
 	return errors.Wrap(err, "error running maintenance")
 }
 
-func (c *App) advancedCommand(ctx context.Context) {
+func (c *App) advancedCommand() {
 	if c.AdvancedCommands != "enabled" {
 		_, _ = errorColor.Fprintf(c.stderrWriter, `
 This command could be dangerous or lead to repository corruption when used improperly.
@@ -602,8 +660,13 @@ To run this command despite the warning, set --advanced-commands=enabled
 
 `)
 
-		c.exitWithError(errors.Errorf("advanced commands are disabled"))
+		c.exitWithError(errors.New("advanced commands are disabled"))
 	}
+}
+
+func (c *App) notificationTemplateOptions() notifytemplate.Options {
+	// perhaps make this configurable in the future
+	return notifytemplate.DefaultOptions
 }
 
 func init() {

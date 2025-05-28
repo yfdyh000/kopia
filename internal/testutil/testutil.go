@@ -4,7 +4,7 @@ package testutil
 import (
 	"encoding/json"
 	"fmt"
-	"log" //nolint:depguard
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -143,8 +143,7 @@ func RunAllTestsWithParam(t *testing.T, v interface{}) {
 	m := reflect.ValueOf(v)
 	typ := m.Type()
 
-	for i := 0; i < typ.NumMethod(); i++ {
-		i := i
+	for i := range typ.NumMethod() {
 		meth := typ.Method(i)
 
 		if strings.HasPrefix(meth.Name, "Test") {

@@ -211,7 +211,7 @@ func (c *PersistentCache) Put(ctx context.Context, key string, data gather.Bytes
 }
 
 // Close closes the instance of persistent cache possibly waiting for at least one sweep to complete.
-func (c *PersistentCache) Close(ctx context.Context) {
+func (c *PersistentCache) Close(_ context.Context) {
 	if c == nil {
 		return
 	}
@@ -220,6 +220,8 @@ func (c *PersistentCache) Close(ctx context.Context) {
 }
 
 // A contentMetadataHeap implements heap.Interface and holds blob.Metadata.
+//
+//nolint:recvcheck
 type contentMetadataHeap struct {
 	data           []blob.Metadata
 	index          map[blob.ID]int

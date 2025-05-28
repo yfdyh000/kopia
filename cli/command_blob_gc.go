@@ -31,7 +31,7 @@ func (c *commandBlobGC) setup(svc appServices, parent commandParent) {
 }
 
 func (c *commandBlobGC) run(ctx context.Context, rep repo.DirectRepositoryWriter) error {
-	c.svc.advancedCommand(ctx)
+	c.svc.advancedCommand()
 
 	opts := maintenance.DeleteUnreferencedBlobsOptions{
 		DryRun:   c.delete != "yes",
@@ -45,7 +45,7 @@ func (c *commandBlobGC) run(ctx context.Context, rep repo.DirectRepositoryWriter
 	}
 
 	if opts.DryRun && n > 0 {
-		log(ctx).Infof("Pass --delete=yes to delete.")
+		log(ctx).Info("Pass --delete=yes to delete.")
 	}
 
 	return nil

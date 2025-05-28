@@ -627,6 +627,7 @@ func findRealFileDir(t *testing.T, original string) (dir, file string) {
 		case file != "" && dir != "":
 			return filepath.SkipDir
 		}
+
 		return nil
 	})
 	require.NoError(t, err)
@@ -700,7 +701,7 @@ func (rdc *repoDirEntryCache) getRepoDirEntry(t *testing.T, rop string) *snapsho
 	return nil
 }
 
-// validateXattr checks that shallowrestore absolute path srp has placeholder
+// validatePlaceholder checks that shallowrestore absolute path srp has placeholder
 // DirEntry value equal to the in-repository DirEntry for rootid/rop.
 func (rdc *repoDirEntryCache) validatePlaceholder(t *testing.T, rop, srp string) {
 	t.Helper()
@@ -760,7 +761,7 @@ func findFileDir(t *testing.T, shallow string) (dirinshallow, fileinshallow stri
 		fi, err := os.Lstat(f)
 		require.NoError(t, err)
 
-		if !(fi.Mode().IsDir() || fi.Mode().IsRegular()) {
+		if !fi.Mode().IsDir() && !fi.Mode().IsRegular() {
 			continue
 		}
 
@@ -946,7 +947,7 @@ func verifyShallowVsOriginalFile(t *testing.T, rdc *repoDirEntryCache, shallow, 
 func makeLongName(c rune) string {
 	// TODO(rjk): not likely to work on plan9.
 	buffy := make([]byte, 0, restore.MaxFilenameLength)
-	for i := 0; i < restore.MaxFilenameLength; i++ {
+	for range restore.MaxFilenameLength {
 		buffy = append(buffy, byte(c))
 	}
 

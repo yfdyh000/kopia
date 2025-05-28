@@ -17,6 +17,8 @@ import (
 )
 
 // TimeOfDay represents the time of day (hh:mm) using 24-hour time format.
+//
+//nolint:recvcheck
 type TimeOfDay struct {
 	Hour   int `json:"hour"`
 	Minute int `json:"min"`
@@ -288,5 +290,5 @@ func ValidateSchedulingPolicy(p SchedulingPolicy) error {
 }
 
 func stripCronComment(s string) string {
-	return strings.TrimSpace(strings.SplitN(s, "#", 2)[0]) //nolint:gomnd
+	return strings.TrimSpace(strings.SplitN(s, "#", 2)[0]) //nolint:mnd
 }

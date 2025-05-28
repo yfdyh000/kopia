@@ -61,6 +61,7 @@ func (c *commandMount) run(ctx context.Context, rep repo.Repository) error {
 		entry = snapshotfs.AllSourcesEntry(rep)
 	} else {
 		var err error
+
 		entry, err = snapshotfs.FilesystemDirectoryFromIDWithPath(ctx, rep, c.mountObjectID, false)
 		if err != nil {
 			return errors.Wrapf(err, "unable to get directory entry for %v", c.mountObjectID)
@@ -89,10 +90,10 @@ func (c *commandMount) run(ctx context.Context, rep repo.Repository) error {
 	log(ctx).Infof("Mounted '%v' on %v", c.mountObjectID, ctrl.MountPath())
 
 	if c.mountPoint == "*" && !c.mountPointBrowse {
-		log(ctx).Infof("HINT: Pass --browse to automatically open file browser.")
+		log(ctx).Info("HINT: Pass --browse to automatically open file browser.")
 	}
 
-	log(ctx).Infof("Press Ctrl-C to unmount.")
+	log(ctx).Info("Press Ctrl-C to unmount.")
 
 	if c.mountPointBrowse {
 		if err := open.Start(ctrl.MountPath()); err != nil {
@@ -109,7 +110,7 @@ func (c *commandMount) run(ctx context.Context, rep repo.Repository) error {
 
 	select {
 	case <-ctrlCPressed:
-		log(ctx).Infof("Unmounting...")
+		log(ctx).Info("Unmounting...")
 		// TODO: Consider lazy unmounting (-z) and polling till the filesystem is unmounted instead of failing with:
 		// "unmount error: exit status 1: fusermount: failed to unmount /tmp/kopia-mount719819963: Device or resource busy, try --help"
 		err := ctrl.Unmount(ctx)
@@ -118,13 +119,13 @@ func (c *commandMount) run(ctx context.Context, rep repo.Repository) error {
 		}
 
 	case <-ctrl.Done():
-		log(ctx).Infof("Unmounted.")
+		log(ctx).Info("Unmounted.")
 		return nil
 	}
 
 	// Reporting clean unmount in case of interrupt signal.
 	<-ctrl.Done()
-	log(ctx).Infof("Unmounted.")
+	log(ctx).Info("Unmounted.")
 
 	return nil
 }

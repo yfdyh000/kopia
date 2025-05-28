@@ -133,11 +133,7 @@ func TestPathLockBasic(t *testing.T) {
 		// Wait until the internal atomic counter increments.
 		// That will only happen once the Lock call to path2 executes
 		// and blocks on the prior Lock to path1.
-		for {
-			if busyCounter.Load() > currBusyCounter {
-				break
-			}
-
+		for busyCounter.Load() <= currBusyCounter {
 			time.Sleep(1 * time.Millisecond)
 		}
 
@@ -284,7 +280,7 @@ func TestPathLockRace(t *testing.T) {
 	wg := new(sync.WaitGroup)
 
 	numGoroutines := 100
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		wg.Add(1)
 
 		go func() {
@@ -293,7 +289,7 @@ func TestPathLockRace(t *testing.T) {
 			// Pick from three different path values that should all be
 			// covered by the same lock.
 			path := "/some/path/a/b/c"
-			for i := 0; i < rand.Intn(3); i++ {
+			for range rand.Intn(3) {
 				path = filepath.Dir(path)
 			}
 

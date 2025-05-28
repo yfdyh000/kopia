@@ -84,11 +84,11 @@ func TestWebDAVStorageBuiltInServer(t *testing.T) {
 		{1, 2},
 		{2, 2, 2},
 	} {
-		shardSpec := shardSpec
 		t.Run(fmt.Sprintf("shards-%v", shardSpec), func(t *testing.T) {
 			if err := os.RemoveAll(tmpDir); err != nil {
 				t.Errorf("can't remove all: %q", tmpDir)
 			}
+
 			os.MkdirAll(tmpDir, 0o700)
 
 			verifyWebDAVStorage(t, server.URL, "user", "password", shardSpec)
@@ -139,6 +139,7 @@ func transformMissingPUTs(next http.Handler) http.HandlerFunc {
 			for header, values := range rec.Header() {
 				w.Header()[header] = values
 			}
+
 			w.WriteHeader(result.StatusCode)
 			io.Copy(w, result.Body)
 		}

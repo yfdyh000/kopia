@@ -1,7 +1,7 @@
 package cli_test
 
 import (
-	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -418,9 +418,10 @@ func TestRepositoryUpgrade_checkIndexInfo(t *testing.T) {
 		},
 	}
 	for i, tc := range tcs {
-		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			report := cli.CheckIndexInfo(tc.indexInfo0, tc.indexInfo1)
-			require.Equal(t, len(report), len(tc.expectRegexs), "unexpected report length")
+			require.Len(t, tc.expectRegexs, len(report), "unexpected report length")
+
 			for i := range tc.expectRegexs {
 				require.Regexp(t, tc.expectRegexs[i], report[i], "report does not match regular expression")
 			}

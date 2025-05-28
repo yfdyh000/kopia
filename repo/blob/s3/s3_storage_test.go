@@ -27,6 +27,7 @@ import (
 	"github.com/kopia/kopia/internal/tlsutil"
 	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/blob/retrying"
+	"github.com/kopia/kopia/repo/jsonencoding"
 )
 
 const (
@@ -165,8 +166,6 @@ func TestS3StorageProviders(t *testing.T) {
 	t.Parallel()
 
 	for k, env := range providerCreds {
-		env := env
-
 		t.Run(k, func(t *testing.T) {
 			opt := getProviderOptions(t, env)
 
@@ -292,7 +291,7 @@ func TestTokenExpiration(t *testing.T) {
 	creds, customProvider := customCredentialsAndProvider(awsAccessKeyID, awsSecretAccessKeyID, role, region)
 
 	// Verify that the credentials can be used to get a new value
-	val, err := creds.Get()
+	val, err := creds.GetWithContext(nil)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -359,6 +358,27 @@ func TestS3StorageMinio(t *testing.T) {
 
 	createBucket(t, options)
 	testStorage(t, options, true, blob.PutOptions{})
+}
+
+func TestS3StorageCustomCredentials(t *testing.T) {
+	t.Parallel()
+
+	// skip the test if AWS creds are not provided
+	getEnv(testAccessKeyIDEnv, "")
+	getEnv(testSecretAccessKeyEnv, "")
+
+	options := &Options{
+		Endpoint:     getEnv(testEndpointEnv, awsEndpoint),
+		BucketName:   getEnvOrSkip(t, testBucketEnv),
+		RoleARN:      getEnvOrSkip(t, testRoleEnv),
+		RoleRegion:   getEnvOrSkip(t, testRegionEnv),
+		SessionName:  "test-assume-role",
+		RoleEndpoint: awsStsEndpointUSWest2,
+		RoleDuration: jsonencoding.Duration{Duration: time.Minute * 15},
+	}
+
+	getOrCreateBucket(t, options)
+	testStorage(t, options, false, blob.PutOptions{})
 }
 
 func TestS3StorageMinioSelfSignedCert(t *testing.T) {
@@ -484,8 +504,8 @@ func TestS3StorageMinioSTS(t *testing.T) {
 		DoNotUseTLS:     true,
 	})
 
-	require.NotEqual(t, kopiaCreds.AccessKeyID, minioRootAccessKeyID)
-	require.NotEqual(t, kopiaCreds.SecretAccessKey, minioRootSecretAccessKey)
+	require.NotEqual(t, minioRootAccessKeyID, kopiaCreds.AccessKeyID)
+	require.NotEqual(t, minioRootSecretAccessKey, kopiaCreds.SecretAccessKey)
 	require.NotEmpty(t, kopiaCreds.SessionToken)
 
 	testStorage(t, &Options{
@@ -547,7 +567,7 @@ func TestNeedMD5AWS(t *testing.T) {
 func testStorage(t *testing.T, options *Options, runValidationTest bool, opts blob.PutOptions) {
 	ctx := testlogging.Context(t)
 
-	require.Equal(t, "", options.Prefix)
+	require.Empty(t, options.Prefix)
 
 	st0, err := New(ctx, options, false)
 
@@ -581,7 +601,7 @@ func testStorage(t *testing.T, options *Options, runValidationTest bool, opts bl
 func testPutBlobWithInvalidRetention(t *testing.T, options Options, opts blob.PutOptions) {
 	ctx := testlogging.Context(t)
 
-	require.Equal(t, "", options.Prefix)
+	require.Empty(t, options.Prefix)
 	options.Prefix = uuid.NewString()
 
 	// non-retrying storage
@@ -648,7 +668,6 @@ func createClient(tb testing.TB, opt *Options) *minio.Client {
 	var err error
 
 	transport, err = getCustomTransport(opt)
-
 	if err != nil {
 		tb.Fatalf("unable to get proper transport: %v", err)
 	}
@@ -757,7 +776,7 @@ func createMinioSessionToken(t *testing.T, minioEndpoint, kopiaUserName, kopiaUs
 	require.NoError(t, err, "during STSAssumeRole:", minioEndpoint)
 	require.NotNil(t, roleCreds)
 
-	credsValue, err := roleCreds.Get()
+	credsValue, err := roleCreds.GetWithContext(nil)
 	require.NoError(t, err)
 
 	return credsValue
@@ -790,6 +809,14 @@ const expiredSessionToken = "IQoJb3JpZ2luX2VjEBMaCXVzLXdlc3QtMiJIM" +
 	"82CdcwRB+t7K1LEmRErltbteGtM="
 
 func (cp *customProvider) Retrieve() (credentials.Value, error) {
+	return cp.RetrieveWithCredContext(nil)
+}
+
+func (cp *customProvider) IsExpired() bool {
+	return cp.forceExpired.Load()
+}
+
+func (cp *customProvider) RetrieveWithCredContext(cc *credentials.CredContext) (credentials.Value, error) {
 	if cp.forceExpired.Load() {
 		return credentials.Value{
 			AccessKeyID:     "ASIAQREAKNKDBR4F5F2I",
@@ -799,11 +826,7 @@ func (cp *customProvider) Retrieve() (credentials.Value, error) {
 		}, nil
 	}
 
-	return cp.stsProvider.Retrieve()
-}
-
-func (cp *customProvider) IsExpired() bool {
-	return cp.forceExpired.Load()
+	return cp.stsProvider.RetrieveWithCredContext(cc)
 }
 
 // customCredentialsAndProvider creates a custom provider and returns credentials

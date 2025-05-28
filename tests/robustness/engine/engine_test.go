@@ -152,7 +152,7 @@ func makeTempS3Bucket(t *testing.T) (bucketName string, cleanupCB func()) {
 
 		var err error
 
-		for retry := 0; retry < retries; retry++ {
+		for range retries {
 			time.Sleep(retryPeriod)
 
 			err = cli.RemoveBucket(ctx, bucketName)
@@ -160,6 +160,7 @@ func makeTempS3Bucket(t *testing.T) (bucketName string, cleanupCB func()) {
 				break
 			}
 		}
+
 		require.NoError(t, err)
 	}
 }
@@ -485,7 +486,7 @@ func TestPickActionWeighted(t *testing.T) {
 		numTestLoops := 100000
 
 		results := make(map[ActionKey]int, len(tc.inputCtrlWeights))
-		for loop := 0; loop < numTestLoops; loop++ {
+		for range numTestLoops {
 			results[pickActionWeighted(inputCtrlOpts, tc.inputActionList)]++
 		}
 
@@ -539,9 +540,9 @@ func TestActionsFilesystem(t *testing.T) {
 	}
 
 	numActions := 10
-	for loop := 0; loop < numActions; loop++ {
+	for range numActions {
 		err := eng.RandomAction(ctx, actionOpts)
-		if !(err == nil || errors.Is(err, robustness.ErrNoOp)) {
+		if err != nil && !errors.Is(err, robustness.ErrNoOp) {
 			t.Error("Hit error", err)
 		}
 	}
@@ -586,9 +587,9 @@ func TestActionsS3(t *testing.T) {
 	}
 
 	numActions := 10
-	for loop := 0; loop < numActions; loop++ {
+	for range numActions {
 		err := eng.RandomAction(ctx, actionOpts)
-		if !(err == nil || errors.Is(err, robustness.ErrNoOp)) {
+		if err != nil && !errors.Is(err, robustness.ErrNoOp) {
 			t.Error("Hit error", err)
 		}
 	}

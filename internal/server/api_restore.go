@@ -95,7 +95,7 @@ func handleRestore(ctx context.Context, rc requestContext) (interface{}, *apiErr
 
 		opt := req.Options
 
-		opt.ProgressCallback = func(ctx context.Context, s restore.Stats) {
+		opt.ProgressCallback = func(_ context.Context, s restore.Stats) {
 			ctrl.ReportCounters(restoreCounters(s))
 		}
 
@@ -118,7 +118,7 @@ func handleRestore(ctx context.Context, rc requestContext) (interface{}, *apiErr
 
 	task, ok := rc.srv.taskManager().GetTask(taskID)
 	if !ok {
-		return nil, internalServerError(errors.Errorf("task not found"))
+		return nil, internalServerError(errors.New("task not found"))
 	}
 
 	return task, nil

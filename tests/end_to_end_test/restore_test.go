@@ -13,12 +13,15 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/alecthomas/kingpin/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kopia/kopia/cli"
 	"github.com/kopia/kopia/fs/localfs"
 	"github.com/kopia/kopia/internal/diff"
 	"github.com/kopia/kopia/internal/fshasher"
@@ -26,6 +29,7 @@ import (
 	"github.com/kopia/kopia/internal/stat"
 	"github.com/kopia/kopia/internal/testlogging"
 	"github.com/kopia/kopia/internal/testutil"
+	"github.com/kopia/kopia/snapshot/restore"
 	"github.com/kopia/kopia/tests/clitestutil"
 	"github.com/kopia/kopia/tests/testdirtree"
 	"github.com/kopia/kopia/tests/testenv"
@@ -38,6 +42,28 @@ const (
 	overriddenFilePermissions = 0o651
 	overriddenDirPermissions  = 0o752
 )
+
+type fakeRestoreProgress struct {
+	mtx                  sync.Mutex
+	invocations          []restore.Stats
+	flushesCount         int
+	invocationAfterFlush bool
+}
+
+func (p *fakeRestoreProgress) SetCounters(s restore.Stats) {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	p.invocations = append(p.invocations, s)
+
+	if p.flushesCount > 0 {
+		p.invocationAfterFlush = true
+	}
+}
+
+func (p *fakeRestoreProgress) Flush() {
+	p.flushesCount++
+}
 
 func TestRestoreCommand(t *testing.T) {
 	t.Parallel()
@@ -82,7 +108,26 @@ func TestRestoreCommand(t *testing.T) {
 
 	// Attempt to restore using snapshot ID
 	restoreFailDir := testutil.TempDirectory(t)
-	e.RunAndExpectSuccess(t, "restore", snapID, restoreFailDir)
+
+	// Remember original app cusomization
+	origCustomizeApp := runner.CustomizeApp
+
+	// Prepare fake restore progress and set it when needed
+	frp := &fakeRestoreProgress{}
+
+	runner.CustomizeApp = func(a *cli.App, kp *kingpin.Application) {
+		origCustomizeApp(a, kp)
+		a.SetRestoreProgress(frp)
+	}
+
+	e.RunAndExpectSuccess(t, "restore", snapID, restoreFailDir, "--progress-update-interval", "1ms")
+
+	runner.CustomizeApp = origCustomizeApp
+
+	// Expecting progress to be reported multiple times and flush to be invoked at the end
+	require.Greater(t, len(frp.invocations), 2, "expected multiple reports of progress")
+	require.Equal(t, 1, frp.flushesCount, "expected to have progress flushed once")
+	require.False(t, frp.invocationAfterFlush, "expected not to have reports after flush")
 
 	// Restore last snapshot
 	restoreDir := testutil.TempDirectory(t)
@@ -132,6 +177,8 @@ func TestRestoreCommand(t *testing.T) {
 func compareDirs(t *testing.T, source, restoreDir string) {
 	t.Helper()
 
+	const statsOnly = false
+
 	// Restored contents should match source
 	s, err := localfs.Directory(source)
 	require.NoError(t, err)
@@ -147,11 +194,11 @@ func compareDirs(t *testing.T, source, restoreDir string) {
 	require.NoError(t, err)
 
 	if !assert.Equal(t, wantHash, gotHash, "restored directory hash does not match source's hash") {
-		cmp, err := diff.NewComparer(os.Stderr)
+		cmp, err := diff.NewComparer(os.Stderr, statsOnly)
 		require.NoError(t, err)
 
 		cmp.DiffCommand = "cmp"
-		_ = cmp.Compare(ctx, s, r)
+		cmp.Compare(ctx, s, r)
 	}
 }
 
@@ -297,9 +344,9 @@ func TestSnapshotRestore(t *testing.T) {
 
 	t.Run("modes", func(t *testing.T) {
 		for _, tc := range cases {
-			tc := tc
 			t.Run(tc.fname, func(t *testing.T) {
 				t.Parallel()
+
 				fname := filepath.Join(restoreArchiveDir, tc.fname)
 				e.RunAndExpectSuccess(t, append([]string{"snapshot", "restore", snapID, fname}, tc.args...)...)
 				tc.validator(t, fname)
@@ -688,8 +735,6 @@ func TestSnapshotSparseRestore(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		c := c
-
 		t.Run(c.name, func(t *testing.T) {
 			if c.name == "blk_hole_on_buf_boundary" && runtime.GOARCH == "arm64" {
 				t.Skip("skipping on arm64 due to a failure - https://github.com/kopia/kopia/issues/3178")
@@ -767,7 +812,7 @@ func verifyValidZipFile(t *testing.T, fname string) {
 	zr, err := zip.OpenReader(fname)
 	require.NoError(t, err)
 
-	defer zr.Close()
+	zr.Close()
 }
 
 func verifyValidTarFile(t *testing.T, fname string) {
@@ -864,6 +909,6 @@ func TestRestoreByPathWithoutTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, originalData, data)
 
-	// Must pass snapshot time
-	e.RunAndExpectFailure(t, "restore", srcdir)
+	// Defaults to latest snapshot time
+	e.RunAndExpectSuccess(t, "restore", srcdir)
 }

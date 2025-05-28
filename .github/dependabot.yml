@@ -20,13 +20,15 @@ updates:
         - "github.com/minio/minio-go/*"
         - "golang.org/x/*"
         - "google.golang.org/*"
+      telemetry-dependencies:
+        patterns:
         - "github.com/prometheus/*"
         - "go.opentelemetry.io/*"
   - package-ecosystem: github-actions
     directory: "/"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       github-actions:
         patterns:

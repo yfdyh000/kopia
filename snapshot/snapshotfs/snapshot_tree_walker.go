@@ -131,7 +131,7 @@ func (w *TreeWalker) processDirEntry(ctx context.Context, dir fs.Directory, entr
 			childPath := path.Join(entryPath, ent2.Name())
 
 			if ag.CanShareWork(w.wp) {
-				ag.RunAsync(w.wp, func(c *workshare.Pool[any], request any) {
+				ag.RunAsync(w.wp, func(_ *workshare.Pool[any], _ any) {
 					w.processEntry(ctx, ent2, childPath)
 				}, nil)
 			} else {
@@ -150,7 +150,7 @@ func (w *TreeWalker) processDirEntry(ctx context.Context, dir fs.Directory, entr
 // Process processes the snapshot tree entry.
 func (w *TreeWalker) Process(ctx context.Context, e fs.Entry, entryPath string) error {
 	if oidOf(e) == object.EmptyID {
-		return errors.Errorf("entry does not have ObjectID")
+		return errors.New("entry does not have ObjectID")
 	}
 
 	if w.alreadyProcessed(ctx, e) {
