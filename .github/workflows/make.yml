@@ -1,7 +1,6 @@
 name: Build
 on:
   pull_request:
-    branches: [ master ]
   push:
     # ci-sandbox is a branch dedicated to testing post-submit code.
   schedule:
