@@ -3,9 +3,6 @@ on:
   pull_request:
   push:
     # ci-sandbox is a branch dedicated to testing post-submit code.
-  schedule:
-    # run on Mondays at 8AM
-    - cron:  '0 8 * * 1'
   workflow_dispatch:
 concurrency: 
   group: ${{ github.workflow }}-${{ github.ref }}
